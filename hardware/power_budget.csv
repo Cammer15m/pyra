@@ -1,0 +1,58 @@
+subsystem,component,part_number,mode,voltage_V,current_typical_mA,current_max_mA,duty_cycle_pct,measurement_interval_s,avg_current_uA,daily_mAh,notes,source
+MCU,ESP32-S3,ESP32-S3-WROOM-1-N16R8,active_CPU+WiFi,3.3,,,,,,,Peak with Wi-Fi TX; only used for OTA and diag,datasheet
+MCU,ESP32-S3,ESP32-S3-WROOM-1-N16R8,active_CPU_only,3.3,,,,,,,Sensor sampling + CBOR encode,datasheet
+MCU,ESP32-S3,ESP32-S3-WROOM-1-N16R8,light_sleep,3.3,,,,,,,RTC + peripherals live,datasheet
+MCU,ESP32-S3,ESP32-S3-WROOM-1-N16R8,deep_sleep,3.3,,,,,,,RTC + ULP only,datasheet
+LoRa radio,SX1262,SX1262IMLTRT,TX_+17dBm,3.3,,,,,,,Peak TX; bound by duty-cycle regs,datasheet
+LoRa radio,SX1262,SX1262IMLTRT,TX_+20dBm,3.3,,,,,,,Allowed in US/CA 902-928MHz only,datasheet
+LoRa radio,SX1262,SX1262IMLTRT,RX_boosted,3.3,,,,,,,Downlink RX windows,datasheet
+LoRa radio,SX1262,SX1262IMLTRT,standby_RC,3.3,,,,,,,Between TX/RX bursts,datasheet
+LoRa radio,SX1262,SX1262IMLTRT,sleep,3.3,,,,,,,Cold sleep between uplinks,datasheet
+GNSS,u-blox MAX-M10S,MAX-M10S-00B,acquisition,3.3,,,,,,,Cold-start ~30s,datasheet
+GNSS,u-blox MAX-M10S,MAX-M10S-00B,tracking,3.3,,,,,,,,datasheet
+GNSS,u-blox MAX-M10S,MAX-M10S-00B,power_save_mode,3.3,,,,,,,,datasheet
+GNSS,u-blox MAX-M10S,MAX-M10S-00B,backup,1.8,,,,,,,Coin-cell-powered,datasheet
+RTC,DS3231SN,DS3231SN,timekeeping,3.3,,,,,,,Typ 840 uA active; coin-cell backup,datasheet
+Secure element,ATECC608B,ATECC608B,active,3.3,,,,,,,Crypto op,datasheet
+Secure element,ATECC608B,ATECC608B,idle,3.3,,,,,,,Sleep,datasheet
+Storage,microSD,generic,write,3.3,,,,,,,Peak write current; gate access,measurement
+Storage,microSD,generic,idle,3.3,,,,,,,,datasheet
+Air T+RH,Sensirion SHT45,SHT45-AD1B-R2,measure,3.3,,,,,,,One-shot measurement,datasheet
+Air T+RH,Sensirion SHT45,SHT45-AD1B-R2,idle,3.3,,,,,,,,datasheet
+Barometer,Bosch BMP390,BMP390,forced_mode,3.3,,,,,,,One-shot,datasheet
+Barometer,Bosch BMP390,BMP390,sleep,3.3,,,,,,,,datasheet
+Soil moisture (shallow 5cm),DFRobot SEN0193 (Phase 1),SEN0193,measure,3.3,,,,,,,Via MOSFET gate; replace with TEROS 10 for production,datasheet
+Soil moisture (deep 20cm),DFRobot SEN0193 (Phase 1),SEN0193,measure,3.3,,,,,,,,datasheet
+Soil temperature,DS18B20 x2,DS18B20,convert_T,3.3,,,,,,,750ms @ 12-bit; sum for both probes,datasheet
+Soil temperature,DS18B20 x2,DS18B20,idle,3.3,,,,,,,1-Wire standby,datasheet
+Duff moisture,custom capacitive fuel-stick pad,custom,measure,3.3,,,,,,,ESP32 touch peripheral or FDC1004; TBD,estimate
+Anemometer (Phase 1),Davis 6410,6410,pulse_detect,3.3,,,,,,,Reed switch; MCU counts interrupts - near zero draw,datasheet
+Anemometer (Sentinel+),FT Technologies FT205,FT205,measure,5,,,,,,,Ultrasonic; needs 5V step-up,datasheet
+Pyranometer,Apogee SP-110,SP-110-SS,passive_output,0,,,,,,,Self-powered 0-400mV; ADC input draw only,datasheet
+UV index,Liteon LTR-390UV-01,LTR-390UV-01,measure,3.3,,,,,,,One-shot,datasheet
+Rain gauge,Hydreon RG-15,RG-15,standby,3.3,,,,,,,Continuous monitoring - main duty component,datasheet
+Leaf wetness,custom capacitive pad,custom,measure,3.3,,,,,,,Gate via MOSFET; TBD,estimate
+PM2.5/10,Plantower PMS7003,PMS7003,measure_fan_on,5,,,,,,,Peak fan current during sampling,datasheet
+PM2.5/10,Plantower PMS7003,PMS7003,sleep_fan_off,5,,,,,,,Sleep between samples,datasheet
+VOC,Sensirion SGP41,SGP41-D-R4,sampling,3.3,,,,,,,Heater-driven; gate tightly,datasheet
+VOC,Sensirion SGP41,SGP41-D-R4,idle,3.3,,,,,,,,datasheet
+IR thermopile array,Melexis MLX90640 BAA,MLX90640BAA,measure,3.3,,,,,,,32x24 array; thermally significant,datasheet
+IR thermopile array,Melexis MLX90640 BAA,MLX90640BAA,idle,3.3,,,,,,,,datasheet
+Lightning detector,AMS AS3935 (MOD-1016),AS3935,listening,3.3,,,,,,,Continuous; interrupt-driven,datasheet
+MEMS mic (Phase 2+),Knowles SPH0645,SPH0645LM4H,active_I2S,3.3,,,,,,,Continuous inference mode; gate heavily,datasheet
+MEMS mic (Phase 2+),Knowles SPH0645,SPH0645LM4H,idle,3.3,,,,,,,,datasheet
+PIR motion,Panasonic EKMC1603111,EKMC1603111,active,3.3,,,,,,,Continuous standby monitoring,datasheet
+IMU,TDK ICM-20948,ICM-20948,normal_accel_only,3.3,,,,,,,Accel as wake source for tamper detection,datasheet
+IMU,TDK ICM-20948,ICM-20948,low_power_accel,3.3,,,,,,,Wake-on-motion at reduced rate,datasheet
+IMU,TDK ICM-20948,ICM-20948,sleep,3.3,,,,,,,,datasheet
+E-ink display,Waveshare 1.54in 200x200,12955,update,3.3,,,,,,,~1s per refresh; used only during install,datasheet
+E-ink display,Waveshare 1.54in 200x200,12955,idle,3.3,,,,,,,Zero power retained image,datasheet
+Hall arm sensor,TI DRV5032,DRV5032FADBZR,active,3.3,,,,,,,Low-power latching; ~1 uA typ,datasheet
+Touch button,TTP223 module,TTP223,active,3.3,,,,,,,Low quiescent,datasheet
+Power path,MPPT charger,LT3652 (SparkFun Sunny Buddy),quiescent,3.3,,,,,,,Controller overhead during darkness,datasheet
+,,,,,,,,,,,,
+--- totals & targets ---,,,,,,,,,,,,
+TOTAL avg,,,,,,,,,,,Sum of avg_current_uA column divided by duty-weighted budget; target < 2 mA avg for 14-day canopy-shade survival,calculated
+Battery capacity,,,4S LiFePO4 1500 mAh,12.8,,,,,,,4S pack = 6000 mAh @ 12.8V nominal; derate 20% for cold & BMS,spec
+Solar budget (14-day shade),,,,,,,,,,,Assume zero solar input; full discharge horizon,assumption
+Pass/fail criterion,,,,,,,,,,,14-day autonomy at computed avg current; flag any subsystem > 30% of total,calculated
