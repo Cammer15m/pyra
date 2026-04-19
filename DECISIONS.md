@@ -185,3 +185,57 @@ Y. All of the above are working defaults, not commitments — board / sensor / b
 The "Pi hosts Mosquitto + InfluxDB 2.x + Telegraf + Grafana" portion of **D-005**.
 
 ---
+
+## D-009 — PYRA PWA v1: architecture, deployment, empty-state policy
+
+- **Date:** 2026-04-19
+- **Decided by:** Chris Marcotte + Claude (agent)
+
+### Product shape
+
+One codebase, three form factors (phone / tablet / desktop). **Progressive Web App (PWA)** installable from a URL on iOS + Android + desktop — no app-store submission, no separate native codebases. Per the brief's §6.3 eventual native mobile app, a PWA today keeps the product-design work portable to React Native later.
+
+### Stack
+
+- Plain HTML / CSS / JS, **no build step**.
+- Tailwind CSS, Leaflet 1.9.4, Chart.js 4.4.1 — all via CDN (service-worker cached).
+- **Open-Meteo** forecast API for current weather (no API key).
+- **Nominatim (OSM)** for reverse geocode. 1 req/s debounce in-app; `email=` identification per OSM policy; `User-Agent: PYRA/0.1 chris@minnosystems.com` reserved for future server-side use (browsers forbid setting `User-Agent` from `fetch`, so the in-browser call identifies via `Referer` + `email=` query param).
+
+### Deployment
+
+- **v1:** GitHub Pages from `main` branch, `/docs` folder. Live URL: `https://cammer15m.github.io/pyra/`.
+- Chose `/docs` over `/app` because GitHub Pages serves only from repo root or `/docs` on the selected branch, not arbitrary folders. Folder name is cosmetic.
+- `.nojekyll` added so Pages serves files raw (skips Jekyll, which would otherwise try to render the planning-track `.md` files that already live in `docs/`).
+- **v2+ (future D-entry):** migrate to `pyra.minnosystems.com` via the ingress VM → `svc-docker` once we need internal-network access to `svc-mongo` / `svc-redis` for live telemetry, fleet, historical ingest, or alerting. Matches the pattern already used by `jobhunter.minnosystems.com`, `fincalc.minnosystems.com`, etc.
+
+### FWI — deferred to Day 6 per D-007
+
+Open-Meteo does **not** expose a Canadian Forest Fire Weather Index variable under any of the names probed (`fire_weather_index`, `fire_weather_index_max`, `canadian_forest_fire_weather_index`, hourly + daily). Rather than fabricate a number, v1 renders FWI as a dashed-border empty-state card citing D-007. Real CFS-official FWI would require CWFIS or ECCC GeoMet — both are map services (WMS / WFS / ArcGIS), not simple JSON REST, and would need a proxy on `svc-docker` to consume from a static PWA. Deferred until the cffdrs port lands on Day 6.
+
+### Empty-state policy (no-false-confidence)
+
+Every panel that would otherwise show fabricated telemetry, fleet counts, DB counts, alert counts, or FWI instead shows a dashed-border card declaring **what's missing and when it arrives**. Honors brief §2.6 ("Never create false confidence") and §2.7 ("Every derived value carries provenance and uncertainty"). v1 placeholders:
+
+- **FWI** — "Deferred to sprint Day 6 per D-007 (cffdrs port). Open-Meteo does not expose CFS FWI."
+- **Live stream** — "Node not broadcasting yet — bench only."
+- **Fleet** — "1 node on bench; fleet view disabled."
+- **Historical DB** — "No ingest pipeline in v1."
+- **Alerts** — "No rules configured."
+
+### Existing services — intentionally unused in v1
+
+Inventory reviewed at `/mnt/repo/system-inventory/SYSTEM-INVENTORY.md`:
+
+| Service | Endpoint | Used in v1? |
+|---|---|---|
+| `svc-mongo` | `mongo.int.minnosystems.com` / `192.168.0.118:27017` | No |
+| `svc-redis` | `redis.int.minnosystems.com` / `192.168.0.214:6379` | No |
+| `svc-docker` | `192.168.0.208` (hosts existing app subdomains) | No |
+| `api.minnosystems.com` ingress | `192.168.0.194` | No |
+
+v1 is a static, browser-only PWA. The inventoried services are deliberately untouched until a future D-entry wires live node telemetry / fleet / historical / alerting.
+
+### Reversible?
+
+Y. Hosting target, folder layout, stack choices, empty-state copy, and the FWI path are all swap-able.

@@ -1,0 +1,16 @@
+{
+  "name": "PYRA — Wildfire Monitoring",
+  "short_name": "PYRA",
+  "description": "Forest-floor wildfire intelligence — field sensor companion for the PYRA stake.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#1a365d",
+  "background_color": "#0b1725",
+  "lang": "en",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

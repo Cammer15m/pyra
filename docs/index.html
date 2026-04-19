@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>PYRA — Wildfire Monitoring</title>
+  <meta name="description" content="Forest-floor wildfire intelligence — field sensor companion for the PYRA stake." />
+  <meta name="theme-color" content="#1a365d" />
+
+  <!-- iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="PYRA" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+
+  <!-- Manifest -->
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icon-192.png" />
+
+  <!-- Libs (service-worker cached) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    :root {
+      --navy: #1a365d;
+      --navy-deep: #0b1725;
+      --orange: #f97316;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --card: #122036;
+      --border: #1e3a5f;
+    }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--navy-deep);
+      color: var(--text);
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .brand { color: var(--orange); }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
+    .muted { color: var(--muted); }
+    .dashed { border: 1px dashed var(--border); border-radius: 10px; }
+    #map { height: 320px; border-radius: 12px; background: #1e3a5f; }
+    @media (min-width: 768px) { #map { height: 420px; } }
+    a { color: var(--orange); }
+  </style>
+</head>
+<body class="min-h-full">
+  <header class="sticky top-0 z-50 bg-[#0b1725] border-b border-[#1e3a5f] px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl grid place-items-center" style="background:#1a365d;border:1px solid #1e3a5f">
+        <div style="width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:15px solid #f97316"></div>
+      </div>
+      <div>
+        <div class="font-bold tracking-wide brand text-lg leading-none">PYRA</div>
+        <div class="text-xs muted leading-tight">Forest-floor wildfire intelligence</div>
+      </div>
+    </div>
+    <button id="installBtn" hidden class="px-3 py-2 rounded-lg text-sm font-semibold"
+            style="background:#f97316;color:#0b1725">Install</button>
+  </header>
+
+  <main class="p-4 max-w-5xl mx-auto grid gap-4 md:grid-cols-2">
+
+    <!-- Map -->
+    <section class="card p-3 md:col-span-2">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="font-semibold text-sm">Stake location</h2>
+        <button id="locateBtn" class="text-xs muted hover:text-white underline-offset-2 hover:underline">Use my location</button>
+      </div>
+      <div id="map"></div>
+      <p class="text-xs muted mt-2">Tap the map to place a stake anywhere.</p>
+    </section>
+
+    <!-- Location -->
+    <section class="card p-3">
+      <h2 class="font-semibold text-sm mb-2">Location</h2>
+      <dl class="text-sm grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+        <dt class="muted">Coords</dt><dd id="coords">—</dd>
+        <dt class="muted">Place</dt><dd id="placeName">—</dd>
+      </dl>
+      <p class="text-xs muted mt-3">Reverse geocode via <a href="https://nominatim.openstreetmap.org/" rel="noopener">Nominatim (OSM)</a>.</p>
+    </section>
+
+    <!-- Current weather -->
+    <section class="card p-3">
+      <h2 class="font-semibold text-sm mb-2">Current weather <span class="muted text-xs font-normal">Open-Meteo</span></h2>
+      <dl class="text-sm grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+        <dt class="muted">Temp</dt><dd id="wxT">—</dd>
+        <dt class="muted">RH</dt><dd id="wxRH">—</dd>
+        <dt class="muted">Wind</dt><dd id="wxWind">—</dd>
+        <dt class="muted">Precip</dt><dd id="wxPrecip">—</dd>
+        <dt class="muted">Cloud</dt><dd id="wxCloud">—</dd>
+        <dt class="muted">As of</dt><dd id="wxTs">—</dd>
+      </dl>
+    </section>
+
+    <!-- Node status -->
+    <section class="card p-3 md:col-span-2">
+      <h2 class="font-semibold text-sm mb-2">Node status <span class="muted text-xs font-normal">real values only</span></h2>
+      <dl class="text-sm grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 md:grid-cols-[auto_1fr_auto_1fr]">
+        <dt class="muted">Node ID</dt><dd>pyra-dev-001</dd>
+        <dt class="muted">Sensors active</dt><dd>DHT11 (bench)</dd>
+        <dt class="muted">Last capture</dt><dd>2026-04-18 · 60 s baseline + 30 s breath</dd>
+        <dt class="muted">Firmware</dt><dd><code class="text-xs">firmware/day1-dht11 @ f4f4f03</code></dd>
+      </dl>
+    </section>
+
+    <!-- Empty-state grid -->
+    <section class="card p-3 md:col-span-2">
+      <h2 class="font-semibold text-sm mb-3">Not wired yet <span class="muted text-xs font-normal">honest placeholders, no fake numbers</span></h2>
+      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-5 text-xs">
+        <div class="dashed p-3 opacity-80">
+          <div class="font-semibold text-sm mb-1">FWI</div>
+          <div class="muted">Deferred to sprint Day 6 per D-007 (cffdrs port). Open-Meteo does not expose CFS FWI.</div>
+        </div>
+        <div class="dashed p-3 opacity-80">
+          <div class="font-semibold text-sm mb-1">Live stream</div>
+          <div class="muted">Node not broadcasting yet — bench only.</div>
+        </div>
+        <div class="dashed p-3 opacity-80">
+          <div class="font-semibold text-sm mb-1">Fleet</div>
+          <div class="muted">1 node on bench; fleet view disabled.</div>
+        </div>
+        <div class="dashed p-3 opacity-80">
+          <div class="font-semibold text-sm mb-1">Historical DB</div>
+          <div class="muted">No ingest pipeline in v1.</div>
+        </div>
+        <div class="dashed p-3 opacity-80">
+          <div class="font-semibold text-sm mb-1">Alerts</div>
+          <div class="muted">No rules configured.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Captures -->
+    <section class="card p-3 md:col-span-2">
+      <h2 class="font-semibold text-sm mb-2">Captured bench data <span class="muted text-xs font-normal">DHT11, 2 s sample interval</span></h2>
+      <p class="text-xs muted mb-3">Baseline = 60 s ambient. Breath = 30 s exhale on the sensor. Both from 2026-04-18, ESP32-WROOM-32 + DHT11 on GPIO4.</p>
+      <div class="grid gap-4 md:grid-cols-2">
+        <div>
+          <div class="text-xs muted mb-1">Baseline (ambient)</div>
+          <canvas id="baselineChart" height="140"></canvas>
+          <div id="baselineStats" class="text-xs muted mt-1">—</div>
+        </div>
+        <div>
+          <div class="text-xs muted mb-1">Breath test</div>
+          <canvas id="breathChart" height="140"></canvas>
+          <div id="breathStats" class="text-xs muted mt-1">—</div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="mt-8 p-4 text-center text-xs muted">
+    PYRA PWA v1 · <span id="iosHint" hidden>iOS: tap <span class="brand">Share</span> → <span class="brand">Add to Home Screen</span> ·</span>
+    <a class="underline" href="https://github.com/Cammer15m/pyra" rel="noopener">source</a>
+  </footer>
+
+  <script>
+    // ======= Constants =======
+    const DEFAULT_LL = [45.5017, -73.5673]; // Montreal
+    const NOMINATIM_EMAIL = 'chris@minnosystems.com';
+
+    // ======= State =======
+    const state = { lat: null, lng: null, marker: null };
+
+    // ======= Map =======
+    const map = L.map('map', { zoomControl: true, attributionControl: true })
+                 .setView(DEFAULT_LL, 11);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
+
+    function setLocation(lat, lng, opts = {}) {
+      state.lat = lat; state.lng = lng;
+      if (state.marker) {
+        state.marker.setLatLng([lat, lng]);
+      } else {
+        state.marker = L.marker([lat, lng], { title: 'PYRA stake' }).addTo(map);
+      }
+      if (opts.pan !== false) map.panTo([lat, lng]);
+      document.getElementById('coords').textContent =
+        `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      fetchWeather(lat, lng);
+      scheduleGeocode(lat, lng);
+    }
+
+    map.on('click', (e) => setLocation(e.latlng.lat, e.latlng.lng));
+
+    // ======= Geolocation =======
+    document.getElementById('locateBtn').addEventListener('click', useGeolocation);
+    function useGeolocation() {
+      if (!navigator.geolocation) {
+        alert('Geolocation not supported in this browser.');
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setLocation(pos.coords.latitude, pos.coords.longitude),
+        (err) => console.warn('geolocation failed:', err.message),
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    }
+
+    // ======= Open-Meteo current weather =======
+    async function fetchWeather(lat, lng) {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}`
+                + `&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,`
+                + `precipitation,cloud_cover&timezone=auto`;
+      const el = (id) => document.getElementById(id);
+      ['wxT','wxRH','wxWind','wxPrecip','wxCloud','wxTs'].forEach((k) => el(k).textContent = '…');
+      try {
+        const r = await fetch(url);
+        const j = await r.json();
+        const c = j.current || {};
+        const u = j.current_units || {};
+        el('wxT').textContent = `${c.temperature_2m ?? '—'} ${u.temperature_2m || '°C'}`;
+        el('wxRH').textContent = `${c.relative_humidity_2m ?? '—'} ${u.relative_humidity_2m || '%'}`;
+        const dir = c.wind_direction_10m ?? null;
+        el('wxWind').textContent = `${c.wind_speed_10m ?? '—'} ${u.wind_speed_10m || 'km/h'}`
+                                   + (dir !== null ? ` @ ${dir}°` : '');
+        el('wxPrecip').textContent = `${c.precipitation ?? '—'} ${u.precipitation || 'mm'}`;
+        el('wxCloud').textContent = `${c.cloud_cover ?? '—'} ${u.cloud_cover || '%'}`;
+        el('wxTs').textContent = c.time ?? '—';
+      } catch (e) {
+        el('wxT').textContent = 'fetch failed';
+        console.error('weather fetch failed', e);
+      }
+    }
+
+    // ======= Nominatim reverse geocode (debounced) =======
+    let geocodeTimer = null;
+    function scheduleGeocode(lat, lng) {
+      if (geocodeTimer) clearTimeout(geocodeTimer);
+      geocodeTimer = setTimeout(() => reverseGeocode(lat, lng), 1200);
+    }
+    async function reverseGeocode(lat, lng) {
+      const el = document.getElementById('placeName');
+      el.textContent = '…';
+      const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}`
+                + `&format=jsonv2&zoom=10&email=${encodeURIComponent(NOMINATIM_EMAIL)}`;
+      try {
+        const r = await fetch(url);
+        const j = await r.json();
+        const a = j.address || {};
+        const parts = [a.city || a.town || a.village || a.hamlet || a.county, a.state, a.country]
+          .filter(Boolean);
+        el.textContent = parts.length ? parts.join(', ') : (j.display_name || '—');
+      } catch (e) {
+        el.textContent = 'geocode failed';
+        console.error('geocode failed', e);
+      }
+    }
+
+    // ======= DHT11 captured-data charts =======
+    async function loadCaptures() {
+      try {
+        const [base, breath] = await Promise.all([
+          fetch('data/baseline.csv').then((r) => r.text()),
+          fetch('data/breath.csv').then((r) => r.text()),
+        ]);
+        const baseRows = parseCSV(base);
+        const breathRows = parseCSV(breath);
+        renderCapture('baselineChart', baseRows);
+        renderCapture('breathChart', breathRows);
+        document.getElementById('baselineStats').textContent = summarize(baseRows);
+        document.getElementById('breathStats').textContent = summarize(breathRows);
+      } catch (e) {
+        console.error('capture load failed', e);
+      }
+    }
+
+    function parseCSV(text) {
+      // Columns: timestamp_ms, temp_c, humidity_pct (no header)
+      return text.trim().split(/\r?\n/).map((line) => {
+        const [ts, t, rh] = line.split(',');
+        return { ts: +ts, t: +t, rh: +rh };
+      }).filter((r) => Number.isFinite(r.ts) && Number.isFinite(r.t) && Number.isFinite(r.rh));
+    }
+
+    function summarize(rows) {
+      if (!rows.length) return '—';
+      const t = rows.map((r) => r.t);
+      const rh = rows.map((r) => r.rh);
+      const mn = (a) => Math.min(...a).toFixed(1);
+      const mx = (a) => Math.max(...a).toFixed(1);
+      const av = (a) => (a.reduce((s,v) => s+v, 0) / a.length).toFixed(1);
+      return `n=${rows.length} · temp ${mn(t)}–${mx(t)} °C (avg ${av(t)}) · RH ${mn(rh)}–${mx(rh)} % (avg ${av(rh)})`;
+    }
+
+    function renderCapture(canvasId, rows) {
+      const tMin = rows[0]?.ts ?? 0;
+      const labels = rows.map((r) => ((r.ts - tMin) / 1000).toFixed(0));
+      new Chart(document.getElementById(canvasId).getContext('2d'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Temp (°C)', data: rows.map((r) => r.t), yAxisID: 'y1',
+              borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.12)', tension: 0.2 },
+            { label: 'RH (%)', data: rows.map((r) => r.rh), yAxisID: 'y2',
+              borderColor: '#60a5fa', backgroundColor: 'rgba(96,165,250,0.12)', tension: 0.2 },
+          ],
+        },
+        options: {
+          responsive: true,
+          interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { labels: { color: '#e5e7eb' } } },
+          scales: {
+            x: { ticks: { color: '#94a3b8' }, grid: { color: '#1e3a5f' },
+                 title: { display: true, text: 'seconds from start', color: '#94a3b8' } },
+            y1: { position: 'left', ticks: { color: '#f97316' }, grid: { color: '#1e3a5f' },
+                  title: { display: true, text: '°C', color: '#f97316' } },
+            y2: { position: 'right', ticks: { color: '#60a5fa' }, grid: { drawOnChartArea: false },
+                  title: { display: true, text: '%', color: '#60a5fa' } },
+          },
+        },
+      });
+    }
+    loadCaptures();
+
+    // ======= PWA install handling =======
+    let deferredPrompt = null;
+    const installBtn = document.getElementById('installBtn');
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      installBtn.hidden = false;
+    });
+    installBtn.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      try { await deferredPrompt.userChoice; } catch (_) {}
+      deferredPrompt = null;
+      installBtn.hidden = true;
+    });
+    window.addEventListener('appinstalled', () => {
+      installBtn.hidden = true;
+      deferredPrompt = null;
+    });
+
+    // iOS hint (iOS Safari doesn't fire beforeinstallprompt)
+    const ua = navigator.userAgent || '';
+    const iOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+    const standalone = window.navigator.standalone === true ||
+                       window.matchMedia('(display-mode: standalone)').matches;
+    if (iOS && !standalone) document.getElementById('iosHint').hidden = false;
+
+    // ======= Service worker =======
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch((e) =>
+          console.warn('SW registration failed', e)
+        );
+      });
+    }
+
+    // ======= Kick off =======
+    setLocation(DEFAULT_LL[0], DEFAULT_LL[1], { pan: false });
+  </script>
+</body>
+</html>
