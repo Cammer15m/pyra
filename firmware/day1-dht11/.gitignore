@@ -1,0 +1,8 @@
+.pio/
+.pioenvs/
+.piolibdeps/
+*.elf
+*.bin
+*.hex
+*.map
+.vscode/

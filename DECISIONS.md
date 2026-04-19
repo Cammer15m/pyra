@@ -135,3 +135,53 @@ Entry format:
 - **Reversible?** Decision itself is final on Day 6; the port-own-vs.-adopt choice is a one-way door only for the sprint — long-term we own both possibilities.
 
 ---
+
+## D-008 — Day 1 bench verification: DHT11 + ESP32 pipeline working; architecture corrections
+
+- **Date:** 2026-04-18 (late) → 2026-04-19 (early) — overnight debug session
+- **Decided by:** Chris Marcotte + Claude (agent)
+
+### Verification result — end-to-end firmware-dev pipeline works
+
+| Layer | Detail |
+|---|---|
+| Dev host | Raspberry Pi 4, RPi OS, hostname `espprog`, LAN alias `pyra-pi` @ 192.168.0.27 |
+| Dev tool | PlatformIO Core 6.1.19 (venv at `~/.platformio/penv`) |
+| MCU | ESP32-D0WD-V3 rev 3.1 (classic dual-core Xtensa LX6, 240 MHz, 40 MHz crystal) |
+| USB-serial | Silicon Labs CP2102 on `/dev/ttyUSB0` |
+| Sensor | DHT11 on GPIO4 (S→GPIO4, +→3V3, −→GND) |
+| Sketch | `firmware/day1-dht11/src/main.cpp`, Arduino framework, 2 s sample interval, CSV `timestamp_ms,temp_c,humidity_pct` @ 115200 baud |
+
+### Empirical readings
+
+| Condition | n | RH (%) | Temp (°C) |
+|---|---|---|---|
+| Ambient baseline (60 s) | 28 | 33.0 (flat) | 26.0 (flat) |
+| Breath on sensor (30 s) | 15 | 41–44 (avg 42.8) | 27–28 |
+| **Δ (breath − ambient)** | | **+8 to +11 pp** | **+1 to +2** |
+
+DHT11 specs: 1 % / 1 °C resolution, ±5 % / ±2 °C accuracy. The breath delta is solidly above the noise floor — sensor is responsive — but the coarse quantization, slow response, and sample-to-sample jitter confirm the expected Day 7 rating of **"bench-only, upgrade to SHT45 for production"**.
+
+Capture files committed at `firmware/day1-dht11/captures/2026-04-18_{baseline,breath}.csv`.
+
+### Architectural corrections captured during the debug
+
+1. **Pi role = dev-only.** Supersedes the deployment-architecture portion of D-005 ("Pi hosts Mosquitto + InfluxDB 2.x + Telegraf + Grafana"). The Pi hosts USB access to the ESP32 + is an SSH target; MQTT broker, time-series DB, Grafana, etc. belong on a cloud VM or workstation once we actually need a data sink. The deployed product is the stake (ESP32 + sensors + battery + radio) — the Pi is never shipped with it.
+
+2. **`pio device monitor` needs `--filter direct`** for scripted/non-TTY capture. The `default` filter silently drops output in SSH-driven captures, which cost ~90 min of wrong-baud / wrong-DTR / wrong-flash-mode debugging before I switched filters and the full boot-plus-sketch output appeared instantly. Standard capture pattern going forward:
+
+   ```
+   ssh pyra-pi 'script -q -c "timeout N ~/.platformio/penv/bin/pio device monitor --dtr 0 --rts 0 --filter direct -p /dev/ttyUSB0 -b 115200" /tmp/mon.log'
+   ```
+
+3. **`monitor_dtr = 0` + `monitor_rts = 0`** in `[env:esp32dev]` holds DTR/RTS inactive so opening the monitor port doesn't force the chip into reset. Partial fix only — the breath-test capture still caught a reset at monitor-open (timestamps restart at millis ≈ 546 instead of continuing from the prior capture). Not blocking Day 1; flagged for Day 2 investigation.
+
+### Reversible?
+
+Y. All of the above are working defaults, not commitments — board / sensor / baud / schema / capture method can all change.
+
+### Supersedes
+
+The "Pi hosts Mosquitto + InfluxDB 2.x + Telegraf + Grafana" portion of **D-005**.
+
+---
