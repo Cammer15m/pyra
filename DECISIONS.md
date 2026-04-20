@@ -239,3 +239,49 @@ v1 is a static, browser-only PWA. The inventoried services are deliberately unto
 ### Reversible?
 
 Y. Hosting target, folder layout, stack choices, empty-state copy, and the FWI path are all swap-able.
+
+---
+
+## D-010 — PWA v2 overlays: 72 h forecast, NASA FIRMS, NRCan CWFIS
+
+- **Date:** 2026-04-20
+- **Decided by:** Chris Marcotte + Claude (agent)
+
+### What's added
+
+1. **72 h forecast at selected point** — Open-Meteo `hourly=temperature_2m, relative_humidity_2m, wind_speed_10m, precipitation`, rendered as two Chart.js line charts below current-weather.
+2. **Leaflet overlay toggles** (top-right of map):
+   - `CWFIS FWI (Canada)` — WMS layer `fwi` from `cwfis.cfs.nrcan.gc.ca`, transparent raster @ opacity 0.55.
+   - `CWFIS active fires (Canada)` — WMS layer `activefires_current`.
+   - `FIRMS hotspots (VIIRS · 24 h)` — JSON fetch, rendered as `L.circleMarker` with popup (date / brightness / confidence / FRP).
+3. **Server-side API proxies on svc-docker nginx** (inherit the same basic-auth as the PWA shell):
+   - `location /api/cwfis/ → https://cwfis.cfs.nrcan.gc.ca/` — bypasses CORS on NRCan WMS.
+   - `location /api/firms/ → https://firms.modaps.eosdis.nasa.gov/api/area/csv/<KEY>/` — keeps FIRMS map key server-side, never shipped to the client.
+
+### FIRMS map-key provisioning
+
+Key is a placeholder `FIRMS_MAP_KEY_UNSET` in `/srv/pyra-pwa/nginx.conf` on `svc-docker`. To activate once Chris has registered a key at `https://firms.modaps.eosdis.nasa.gov/api/map_key/`:
+
+```
+sed -i 's/FIRMS_MAP_KEY_UNSET/<real_key>/' /srv/pyra-pwa/nginx.conf
+cd /srv/pyra-pwa && docker compose restart
+```
+
+Until set, the PWA displays "FIRMS: server key not set — overlay disabled." (no fabricated hotspots).
+
+### Source-of-truth vs. deployed files
+
+- Canonical source: this repo's `docs/` (tracked in git).
+- Deployed artefact: `/srv/pyra-pwa/www/` on `svc-docker` (scp-mirrored from `docs/`).
+- Redeploy: `scp -r docs/. opsadmin@192.168.0.208:/srv/pyra-pwa/www/ && ssh opsadmin@192.168.0.208 'cd /srv/pyra-pwa && docker compose restart'`.
+- A later D-entry can promote this into a proper git-clone-on-svc-docker pipeline when it matters.
+
+### Rationale
+
+- All three overlays honour the brief's §7 external-data catalogue and §2.6 "never create false confidence" — data sources are labelled in the UI and the FIRMS placeholder behaves correctly when unset.
+- CWFIS layers give us regional-FWI today, which complements (does not replace) the cffdrs / point-FWI port deferred to Day 6 (D-007).
+- Both proxies live in the same nginx that fronts the PWA, so the overlay calls are same-origin and inherit basic auth, zero extra credential storage.
+
+### Reversible?
+
+Y. Any overlay can be removed by dropping one layer-control entry and one fetch function.

@@ -48,6 +48,10 @@
     .dashed { border: 1px dashed var(--border); border-radius: 10px; }
     #map { height: 320px; border-radius: 12px; background: #1e3a5f; }
     @media (min-width: 768px) { #map { height: 420px; } }
+    .leaflet-control-layers { background: #122036 !important; color: #e5e7eb !important; border: 1px solid #1e3a5f !important; }
+    .leaflet-control-layers-list label { color: #e5e7eb; font-size: 12px; }
+    .leaflet-control-attribution { background: rgba(11,23,37,0.8) !important; color: #94a3b8 !important; }
+    .leaflet-control-attribution a { color: #f97316 !important; }
     a { color: var(--orange); }
   </style>
 </head>
@@ -75,7 +79,10 @@
         <button id="locateBtn" class="text-xs muted hover:text-white underline-offset-2 hover:underline">Use my location</button>
       </div>
       <div id="map"></div>
-      <p class="text-xs muted mt-2">Tap the map to place a stake anywhere.</p>
+      <p class="text-xs muted mt-2">
+        Tap the map to place a stake. Use the layers control (top-right) to toggle FWI &amp; fire overlays.
+        <span id="firmsStatus" class="ml-1"></span>
+      </p>
     </section>
 
     <!-- Location -->
@@ -101,6 +108,21 @@
       </dl>
     </section>
 
+    <!-- 72h forecast -->
+    <section class="card p-3 md:col-span-2">
+      <h2 class="font-semibold text-sm mb-2">72 h forecast at selected point <span class="muted text-xs font-normal">Open-Meteo · hourly</span></h2>
+      <div class="grid gap-4 md:grid-cols-2">
+        <div>
+          <div class="text-xs muted mb-1">Temperature + RH</div>
+          <canvas id="forecastTemp" height="140"></canvas>
+        </div>
+        <div>
+          <div class="text-xs muted mb-1">Wind + precipitation</div>
+          <canvas id="forecastWind" height="140"></canvas>
+        </div>
+      </div>
+    </section>
+
     <!-- Node status -->
     <section class="card p-3 md:col-span-2">
       <h2 class="font-semibold text-sm mb-2">Node status <span class="muted text-xs font-normal">real values only</span></h2>
@@ -115,10 +137,10 @@
     <!-- Empty-state grid -->
     <section class="card p-3 md:col-span-2">
       <h2 class="font-semibold text-sm mb-3">Not wired yet <span class="muted text-xs font-normal">honest placeholders, no fake numbers</span></h2>
-      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-5 text-xs">
+      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-4 text-xs">
         <div class="dashed p-3 opacity-80">
-          <div class="font-semibold text-sm mb-1">FWI</div>
-          <div class="muted">Deferred to sprint Day 6 per D-007 (cffdrs port). Open-Meteo does not expose CFS FWI.</div>
+          <div class="font-semibold text-sm mb-1">Point-FWI from node data</div>
+          <div class="muted">On-node / forecast-driven FWI lands Day 6 per D-007 (cffdrs port). Meanwhile enable the <em>CWFIS FWI</em> map layer for the NRCan-official regional value.</div>
         </div>
         <div class="dashed p-3 opacity-80">
           <div class="font-semibold text-sm mb-1">Live stream</div>
@@ -129,12 +151,8 @@
           <div class="muted">1 node on bench; fleet view disabled.</div>
         </div>
         <div class="dashed p-3 opacity-80">
-          <div class="font-semibold text-sm mb-1">Historical DB</div>
-          <div class="muted">No ingest pipeline in v1.</div>
-        </div>
-        <div class="dashed p-3 opacity-80">
-          <div class="font-semibold text-sm mb-1">Alerts</div>
-          <div class="muted">No rules configured.</div>
+          <div class="font-semibold text-sm mb-1">Historical DB / alerts</div>
+          <div class="muted">No ingest pipeline or alert rules in v1.</div>
         </div>
       </div>
     </section>
@@ -165,21 +183,52 @@
   </footer>
 
   <script>
-    // ======= Constants =======
+    // ============= Constants / state =============
     const DEFAULT_LL = [45.5017, -73.5673]; // Montreal
     const NOMINATIM_EMAIL = 'chris@minnosystems.com';
-
-    // ======= State =======
     const state = { lat: null, lng: null, marker: null };
 
-    // ======= Map =======
-    const map = L.map('map', { zoomControl: true, attributionControl: true })
-                 .setView(DEFAULT_LL, 11);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    // ============= Base map + tile layer =============
+    const osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
-      attribution: '&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>'
-    }).addTo(map);
+      attribution: '&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>',
+    });
+    const map = L.map('map', { zoomControl: true, attributionControl: true, layers: [osmLayer] })
+                 .setView(DEFAULT_LL, 11);
 
+    // ============= Overlay layers (CWFIS + FIRMS) =============
+    const cwfisFwiLayer = L.tileLayer.wms('/api/cwfis/geoserver/public/wms', {
+      layers: 'fwi',
+      format: 'image/png',
+      transparent: true,
+      version: '1.1.1',
+      opacity: 0.55,
+      attribution: 'FWI &copy; <a href="https://cwfis.cfs.nrcan.gc.ca/" target="_blank" rel="noopener">NRCan CWFIS</a>',
+    });
+    const cwfisFiresLayer = L.tileLayer.wms('/api/cwfis/geoserver/public/wms', {
+      layers: 'activefires_current',
+      format: 'image/png',
+      transparent: true,
+      version: '1.1.1',
+      attribution: 'Active fires &copy; NRCan CWFIS',
+    });
+    const firmsLayer = L.layerGroup();
+
+    L.control.layers(
+      { 'OpenStreetMap': osmLayer },
+      {
+        'CWFIS FWI (Canada)':            cwfisFwiLayer,
+        'CWFIS active fires (Canada)':   cwfisFiresLayer,
+        'FIRMS hotspots (VIIRS · 24 h)': firmsLayer,
+      },
+      { collapsed: true, position: 'topright' }
+    ).addTo(map);
+
+    map.on('overlayadd', (e) => {
+      if (e.layer === firmsLayer && state.lat !== null) fetchFirms(state.lat, state.lng);
+    });
+
+    // ============= Location setter =============
     function setLocation(lat, lng, opts = {}) {
       state.lat = lat; state.lng = lng;
       if (state.marker) {
@@ -188,21 +237,19 @@
         state.marker = L.marker([lat, lng], { title: 'PYRA stake' }).addTo(map);
       }
       if (opts.pan !== false) map.panTo([lat, lng]);
-      document.getElementById('coords').textContent =
-        `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      document.getElementById('coords').textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
       fetchWeather(lat, lng);
+      fetchForecast(lat, lng);
       scheduleGeocode(lat, lng);
+      if (map.hasLayer(firmsLayer)) fetchFirms(lat, lng);
     }
 
     map.on('click', (e) => setLocation(e.latlng.lat, e.latlng.lng));
 
-    // ======= Geolocation =======
+    // ============= Geolocation =============
     document.getElementById('locateBtn').addEventListener('click', useGeolocation);
     function useGeolocation() {
-      if (!navigator.geolocation) {
-        alert('Geolocation not supported in this browser.');
-        return;
-      }
+      if (!navigator.geolocation) { alert('Geolocation not supported in this browser.'); return; }
       navigator.geolocation.getCurrentPosition(
         (pos) => setLocation(pos.coords.latitude, pos.coords.longitude),
         (err) => console.warn('geolocation failed:', err.message),
@@ -210,7 +257,7 @@
       );
     }
 
-    // ======= Open-Meteo current weather =======
+    // ============= Open-Meteo current weather =============
     async function fetchWeather(lat, lng) {
       const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}`
                 + `&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,`
@@ -236,7 +283,61 @@
       }
     }
 
-    // ======= Nominatim reverse geocode (debounced) =======
+    // ============= Open-Meteo 72 h forecast =============
+    let forecastTempChart = null, forecastWindChart = null;
+    async function fetchForecast(lat, lng) {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}`
+                + `&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,precipitation`
+                + `&forecast_days=3&timezone=auto`;
+      try {
+        const r = await fetch(url);
+        const j = await r.json();
+        renderForecast(j);
+      } catch (e) { console.error('forecast fetch failed', e); }
+    }
+
+    function renderForecast(j) {
+      const h = j.hourly || {};
+      const u = j.hourly_units || {};
+      const labels = (h.time || []).map((t) => t.slice(5, 13).replace('T', ' '));
+
+      if (forecastTempChart) forecastTempChart.destroy();
+      forecastTempChart = new Chart(document.getElementById('forecastTemp').getContext('2d'), {
+        type: 'line',
+        data: { labels, datasets: [
+          { label: `Temp (${u.temperature_2m || '°C'})`, data: h.temperature_2m, yAxisID: 'y1',
+            borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.1)', tension: 0.15, pointRadius: 0 },
+          { label: `RH (${u.relative_humidity_2m || '%'})`, data: h.relative_humidity_2m, yAxisID: 'y2',
+            borderColor: '#60a5fa', backgroundColor: 'rgba(96,165,250,0.1)', tension: 0.15, pointRadius: 0 },
+        ] },
+        options: forecastChartOpts('#f97316', '#60a5fa'),
+      });
+
+      if (forecastWindChart) forecastWindChart.destroy();
+      forecastWindChart = new Chart(document.getElementById('forecastWind').getContext('2d'), {
+        type: 'line',
+        data: { labels, datasets: [
+          { label: `Wind (${u.wind_speed_10m || 'km/h'})`, data: h.wind_speed_10m, yAxisID: 'y1',
+            borderColor: '#a78bfa', backgroundColor: 'rgba(167,139,250,0.1)', tension: 0.15, pointRadius: 0 },
+          { label: `Precip (${u.precipitation || 'mm'})`, data: h.precipitation, yAxisID: 'y2',
+            borderColor: '#22d3ee', backgroundColor: 'rgba(34,211,238,0.2)', tension: 0, pointRadius: 0, stepped: true },
+        ] },
+        options: forecastChartOpts('#a78bfa', '#22d3ee'),
+      });
+    }
+    function forecastChartOpts(cL, cR) {
+      return {
+        responsive: true, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { labels: { color: '#e5e7eb' } } },
+        scales: {
+          x: { ticks: { color: '#94a3b8', maxTicksLimit: 8 }, grid: { color: '#1e3a5f' } },
+          y1: { position: 'left', ticks: { color: cL }, grid: { color: '#1e3a5f' } },
+          y2: { position: 'right', ticks: { color: cR }, grid: { drawOnChartArea: false } },
+        },
+      };
+    }
+
+    // ============= Nominatim reverse geocode (debounced, 1 req/s policy) =============
     let geocodeTimer = null;
     function scheduleGeocode(lat, lng) {
       if (geocodeTimer) clearTimeout(geocodeTimer);
@@ -251,8 +352,7 @@
         const r = await fetch(url);
         const j = await r.json();
         const a = j.address || {};
-        const parts = [a.city || a.town || a.village || a.hamlet || a.county, a.state, a.country]
-          .filter(Boolean);
+        const parts = [a.city || a.town || a.village || a.hamlet || a.county, a.state, a.country].filter(Boolean);
         el.textContent = parts.length ? parts.join(', ') : (j.display_name || '—');
       } catch (e) {
         el.textContent = 'geocode failed';
@@ -260,7 +360,63 @@
       }
     }
 
-    // ======= DHT11 captured-data charts =======
+    // ============= FIRMS (proxied via /api/firms/, key stays server-side) =============
+    async function fetchFirms(lat, lng) {
+      const el = document.getElementById('firmsStatus');
+      const d = 1.0; // ~110 km radius
+      const bbox = [lng - d, lat - d, lng + d, lat + d].map((n) => n.toFixed(3)).join(',');
+      const url = `/api/firms/VIIRS_NOAA20_NRT/${bbox}/1`;
+      el.textContent = 'FIRMS: …';
+      try {
+        const r = await fetch(url);
+        const text = await r.text();
+        if (text.trim() === 'Invalid MAP_KEY.' || /Invalid MAP_KEY/i.test(text)) {
+          el.textContent = 'FIRMS: server key not set — overlay disabled.';
+          firmsLayer.clearLayers();
+          return;
+        }
+        const rows = parseFirmsCsv(text);
+        firmsLayer.clearLayers();
+        for (const f of rows) {
+          L.circleMarker([f.lat, f.lng], {
+            radius: 6, color: '#ef4444', weight: 1.5,
+            fillColor: '#f97316', fillOpacity: 0.75,
+          }).bindPopup(
+            `<b>FIRMS hotspot</b><br>` +
+            `${f.date} ${f.time} UTC<br>` +
+            `brightness (bright_ti4): ${f.brightness ?? '—'}<br>` +
+            `confidence: ${f.confidence ?? '—'}<br>` +
+            `FRP: ${f.frp ?? '—'} MW`
+          ).addTo(firmsLayer);
+        }
+        el.textContent = `FIRMS: ${rows.length} VIIRS hotspot(s) in 24 h within ~110 km.`;
+      } catch (e) {
+        el.textContent = 'FIRMS: fetch failed.';
+        console.error(e);
+      }
+    }
+
+    function parseFirmsCsv(text) {
+      const lines = text.trim().split(/\r?\n/);
+      if (lines.length < 2) return [];
+      const headers = lines.shift().split(',');
+      const idx = (k) => headers.indexOf(k);
+      const iLat = idx('latitude'), iLng = idx('longitude');
+      const iBr = idx('bright_ti4') >= 0 ? idx('bright_ti4') : idx('brightness');
+      const iDt = idx('acq_date'), iTm = idx('acq_time'), iCf = idx('confidence'), iFrp = idx('frp');
+      return lines.map((l) => {
+        const c = l.split(',');
+        return {
+          lat: +c[iLat], lng: +c[iLng],
+          brightness: iBr >= 0 ? c[iBr] : undefined,
+          date: c[iDt], time: c[iTm],
+          confidence: iCf >= 0 ? c[iCf] : undefined,
+          frp: iFrp >= 0 ? c[iFrp] : undefined,
+        };
+      }).filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng));
+    }
+
+    // ============= DHT11 bench captures =============
     async function loadCaptures() {
       try {
         const [base, breath] = await Promise.all([
@@ -273,13 +429,10 @@
         renderCapture('breathChart', breathRows);
         document.getElementById('baselineStats').textContent = summarize(baseRows);
         document.getElementById('breathStats').textContent = summarize(breathRows);
-      } catch (e) {
-        console.error('capture load failed', e);
-      }
+      } catch (e) { console.error('capture load failed', e); }
     }
 
     function parseCSV(text) {
-      // Columns: timestamp_ms, temp_c, humidity_pct (no header)
       return text.trim().split(/\r?\n/).map((line) => {
         const [ts, t, rh] = line.split(',');
         return { ts: +ts, t: +t, rh: +rh };
@@ -288,8 +441,7 @@
 
     function summarize(rows) {
       if (!rows.length) return '—';
-      const t = rows.map((r) => r.t);
-      const rh = rows.map((r) => r.rh);
+      const t = rows.map((r) => r.t), rh = rows.map((r) => r.rh);
       const mn = (a) => Math.min(...a).toFixed(1);
       const mx = (a) => Math.max(...a).toFixed(1);
       const av = (a) => (a.reduce((s,v) => s+v, 0) / a.length).toFixed(1);
@@ -301,18 +453,14 @@
       const labels = rows.map((r) => ((r.ts - tMin) / 1000).toFixed(0));
       new Chart(document.getElementById(canvasId).getContext('2d'), {
         type: 'line',
-        data: {
-          labels,
-          datasets: [
-            { label: 'Temp (°C)', data: rows.map((r) => r.t), yAxisID: 'y1',
-              borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.12)', tension: 0.2 },
-            { label: 'RH (%)', data: rows.map((r) => r.rh), yAxisID: 'y2',
-              borderColor: '#60a5fa', backgroundColor: 'rgba(96,165,250,0.12)', tension: 0.2 },
-          ],
-        },
+        data: { labels, datasets: [
+          { label: 'Temp (°C)', data: rows.map((r) => r.t), yAxisID: 'y1',
+            borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.12)', tension: 0.2 },
+          { label: 'RH (%)', data: rows.map((r) => r.rh), yAxisID: 'y2',
+            borderColor: '#60a5fa', backgroundColor: 'rgba(96,165,250,0.12)', tension: 0.2 },
+        ] },
         options: {
-          responsive: true,
-          interaction: { mode: 'index', intersect: false },
+          responsive: true, interaction: { mode: 'index', intersect: false },
           plugins: { legend: { labels: { color: '#e5e7eb' } } },
           scales: {
             x: { ticks: { color: '#94a3b8' }, grid: { color: '#1e3a5f' },
@@ -327,43 +475,31 @@
     }
     loadCaptures();
 
-    // ======= PWA install handling =======
+    // ============= PWA install handling =============
     let deferredPrompt = null;
     const installBtn = document.getElementById('installBtn');
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      deferredPrompt = e;
-      installBtn.hidden = false;
-    });
+    window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; installBtn.hidden = false; });
     installBtn.addEventListener('click', async () => {
       if (!deferredPrompt) return;
       deferredPrompt.prompt();
       try { await deferredPrompt.userChoice; } catch (_) {}
-      deferredPrompt = null;
-      installBtn.hidden = true;
+      deferredPrompt = null; installBtn.hidden = true;
     });
-    window.addEventListener('appinstalled', () => {
-      installBtn.hidden = true;
-      deferredPrompt = null;
-    });
+    window.addEventListener('appinstalled', () => { installBtn.hidden = true; deferredPrompt = null; });
 
-    // iOS hint (iOS Safari doesn't fire beforeinstallprompt)
     const ua = navigator.userAgent || '';
     const iOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
-    const standalone = window.navigator.standalone === true ||
-                       window.matchMedia('(display-mode: standalone)').matches;
+    const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
     if (iOS && !standalone) document.getElementById('iosHint').hidden = false;
 
-    // ======= Service worker =======
+    // ============= Service worker =============
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js').catch((e) =>
-          console.warn('SW registration failed', e)
-        );
+        navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW registration failed', e));
       });
     }
 
-    // ======= Kick off =======
+    // ============= Kick off =============
     setLocation(DEFAULT_LL[0], DEFAULT_LL[1], { pan: false });
   </script>
 </body>
